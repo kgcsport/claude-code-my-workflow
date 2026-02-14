@@ -53,3 +53,26 @@ Thumbs.db
 # Output artifacts — uncomment lines below based on your preference
 # *.rds
 # output/**/*.rds
+
+*.json
+*.rds
+*.gif
+*.pdf
+*.svg
+*.png
+*.jpg
+*.jpeg
+*.csv
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.xlsm
+*.xlsb
+*.xlsm
+*.xlsb
+*.xlsm
+*.xlsb
+*.json
+*.sqlite*
+rsconnect/
