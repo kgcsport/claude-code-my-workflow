@@ -1,12 +1,12 @@
 # CLAUDE.MD -- Academic Project Development with Claude Code
 
-<!-- HOW TO USE: Replace [BRACKETED PLACEHOLDERS] with your project info.
-     Customize Beamer environments and CSS classes for your theme.
-     Keep this file under ~150 lines — Claude loads it every session.
-     See the guide at docs/workflow-guide.html for full documentation. -->
+<!-- Economics Teaching Apps at Vassar College.
+     Shiny app sandbox for classroom tools.
+     Slide infrastructure (Beamer/Quarto) is preserved but deprioritized —
+     slide-specific skills and agents remain functional if needed. -->
 
-**Project:** [YOUR PROJECT NAME]
-**Institution:** [YOUR INSTITUTION]
+**Project:** Economics Teaching Apps
+**Institution:** Vassar College
 **Branch:** main
 
 ---
@@ -14,8 +14,7 @@
 ## Core Principles
 
 - **Plan first** -- enter plan mode before non-trivial tasks; save plans to `quality_reports/plans/`
-- **Verify after** -- compile/render and confirm output at the end of every task
-- **Single source of truth** -- Beamer `.tex` is authoritative; Quarto `.qmd` derives from it
+- **Verify after** -- run apps and confirm output at the end of every task
 - **Quality gates** -- nothing ships below 80/100
 - **[LEARN] tags** -- when corrected, save `[LEARN:category] wrong → right` to MEMORY.md
 
@@ -24,20 +23,21 @@
 ## Folder Structure
 
 ```
-[YOUR-PROJECT]/
+economics-teaching-apps/
 ├── CLAUDE.MD                    # This file
 ├── .claude/                     # Rules, skills, agents, hooks
+├── apps/                        # Shiny apps (each in own subfolder)
 ├── Bibliography_base.bib        # Centralized bibliography
 ├── Figures/                     # Figures and images
 ├── Preambles/header.tex         # LaTeX headers
-├── Slides/                      # Beamer .tex files
-├── Quarto/                      # RevealJS .qmd files + theme
+├── Slides/                      # Beamer .tex files (deprioritized)
+├── Quarto/                      # RevealJS .qmd files (deprioritized)
 ├── docs/                        # GitHub Pages (auto-generated)
 ├── scripts/                     # Utility scripts + R code
 ├── quality_reports/             # Plans, session logs, merge reports
 ├── explorations/                # Research sandbox (see rules)
 ├── templates/                   # Session log, quality report templates
-└── master_supporting_docs/      # Papers and existing slides
+└── master_supporting_docs/      # Papers and references
 ```
 
 ---
@@ -45,7 +45,16 @@
 ## Commands
 
 ```bash
-# LaTeX (3-pass, XeLaTeX only)
+# Run a Shiny app locally
+Rscript -e "shiny::runApp('apps/app-name')"
+
+# Run Shiny app tests
+Rscript -e "shinytest2::test_app('apps/app-name')"
+
+# Run all R tests
+Rscript -e "testthat::test_dir('tests')"
+
+# LaTeX (3-pass, XeLaTeX only — for slide work)
 cd Slides && TEXINPUTS=../Preambles:$TEXINPUTS xelatex -interaction=nonstopmode file.tex
 BIBINPUTS=..:$BIBINPUTS bibtex file
 TEXINPUTS=../Preambles:$TEXINPUTS xelatex -interaction=nonstopmode file.tex
@@ -96,38 +105,39 @@ python scripts/quality_score.py Quarto/file.qmd
 
 ---
 
-<!-- CUSTOMIZE: Replace the example entries below with your own
-     Beamer environments and Quarto CSS classes. These are examples
-     from the original project — delete them and add yours. -->
+## Shiny App Patterns
 
-## Beamer Custom Environments
+| Pattern | Description | When to Use |
+|---------|-------------|-------------|
+| | | |
 
-| Environment       | Effect        | Use Case       |
-|-------------------|---------------|----------------|
-| `[your-env]`      | [Description] | [When to use]  |
-
-<!-- Example entries (delete and replace with yours):
-| `keybox` | Gold background box | Key points |
-| `highlightbox` | Gold left-accent box | Highlights |
-| `definitionbox[Title]` | Blue-bordered titled box | Formal definitions |
+<!-- Add patterns as apps are built, e.g.:
+| Single-file app | app.R with inline UI/server | Simple demos |
+| Modular app | R/mod_*.R modules | Multi-panel apps |
+| Dashboard | shinydashboard layout | Data exploration tools |
 -->
 
-## Quarto CSS Classes
+## Common UI Components
 
-| Class              | Effect        | Use Case       |
-|--------------------|---------------|----------------|
-| `[.your-class]`    | [Description] | [When to use]  |
+| Component | Package | Use Case |
+|-----------|---------|----------|
+| | | |
 
-<!-- Example entries (delete and replace with yours):
-| `.smaller` | 85% font | Dense content slides |
-| `.positive` | Green bold | Good annotations |
+<!-- Add components as they emerge, e.g.:
+| plotOutput + renderPlot | shiny | Static ggplot visualizations |
+| plotlyOutput + renderPlotly | plotly | Interactive charts |
+| DT::dataTableOutput | DT | Sortable data tables |
 -->
 
 ---
 
 ## Current Project State
 
-| Lecture | Beamer | Quarto | Key Content |
-|---------|--------|--------|-------------|
-| 1: [Topic] | `Lecture01_Topic.tex` | `Lecture1_Topic.qmd` | [Brief description] |
-| 2: [Topic] | `Lecture02_Topic.tex` | -- | [Brief description] |
+| App | Folder | Status | Key Functionality |
+|-----|--------|--------|-------------------|
+| | | | |
+
+<!-- Track apps as they are built, e.g.:
+| Participation Tracker | apps/participation | In progress | Real-time attendance + engagement |
+| Supply & Demand | apps/supply-demand | Planned | Interactive equilibrium visualization |
+-->
