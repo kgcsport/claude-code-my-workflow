@@ -14,7 +14,7 @@ library(magick)
 # ---------------------------
 # 0) Baseline firm primitives
 # ---------------------------
-q <- seq(0.5, 12, length.out = 400)
+q <- seq(0.5, 12, length.out = 150)  # reduced from 400 — still smooth curves
 
 AVC_base <- 2 + (q - 3)^2 / 6
 MC_base  <- 0.5 * (q^2 - 4*q + 7)
@@ -68,9 +68,10 @@ P0_eq <- eq0[["P"]]
 
 # ---------------------------
 # 2) Build SR + LR paths (both panels move together)
+#    OPTIMIZED: vectorized — no rowwise()
 # ---------------------------
 make_paths <- function(scenario,
-                       n_sr = 60, n_lr = 90,
+                       n_sr = 30, n_lr = 50,
                        lambda = 0.12) {
 
   # Defaults
@@ -90,29 +91,27 @@ make_paths <- function(scenario,
   }
 
   # ---- Phase SR: shock + immediate response simultaneously ----
-  # Demand shock: A ramps, a fixed, F fixed
-  # Fixed-cost shock: F ramps, A fixed, a fixed (market price unchanged SR)
-  sr <- tibble(frame = 1:n_sr) %>%
-    mutate(
-      A = if (scenario %in% c("demand_out","demand_in")) seq(A0, A_end, length.out = n_sr) else A0,
-      a = a0,
-      F = if (scenario %in% c("fixedcost_up","fixedcost_down")) seq(F0, F_end, length.out = n_sr) else F0
-    ) %>%
-    rowwise() %>%
-    mutate(
-      p_be = p_be_from_F(F),
-      Q_eq = eq_from_Aa(A, a)[["Q"]],
-      P    = eq_from_Aa(A, a)[["P"]]
-    ) %>%
-    ungroup()
+  A_vec <- if (scenario %in% c("demand_out","demand_in")) seq(A0, A_end, length.out = n_sr) else rep(A0, n_sr)
+  F_vec <- if (scenario %in% c("fixedcost_up","fixedcost_down")) seq(F0, F_end, length.out = n_sr) else rep(F0, n_sr)
+  a_vec <- rep(a0, n_sr)
+
+  # Vectorized equilibrium: Q_eq = (A - a) / (b + d), P = (b*A + d*a) / (b + d)
+  Q_eq_vec <- (A_vec - a_vec) / (b + d)
+  P_vec    <- (b * A_vec + d * a_vec) / (b + d)
+
+  # Vectorized break-even: sapply since p_be_from_F uses min() over q grid
+  p_be_vec <- sapply(F_vec, p_be_from_F)
+
+  sr <- tibble(
+    frame = 1:n_sr,
+    A = A_vec, a = a_vec, F = F_vec,
+    p_be = p_be_vec, Q_eq = Q_eq_vec, P = P_vec
+  )
 
   # ---- Phase LR: entry/exit (supply shifts) + profit restoration simultaneously ----
   A_hold <- if (scenario %in% c("demand_out","demand_in")) A_end else A0
   F_hold <- if (scenario %in% c("fixedcost_up","fixedcost_down")) F_end else F0
 
-  # Target price in LR:
-  # - demand shocks: restore P to baseline break-even p_be0 (costs unchanged)
-  # - fixed-cost shocks: restore P to NEW break-even p_be(F_end)
   p_target <- if (scenario %in% c("demand_out","demand_in")) p_be0 else p_be_from_F(F_hold)
 
   a_target <- a_for_price(p_target, A_hold)
@@ -121,61 +120,100 @@ make_paths <- function(scenario,
   a_path[1] <- a0
   for (i in 2:n_lr) a_path[i] <- a_path[i-1] + lambda*(a_target - a_path[i-1])
 
-  lr <- tibble(frame = 1:n_lr) %>%
-    mutate(A = A_hold, F = F_hold, a = a_path) %>%
-    rowwise() %>%
-    mutate(
-      p_be = p_be_from_F(F),
-      Q_eq = eq_from_Aa(A, a)[["Q"]],
-      P    = eq_from_Aa(A, a)[["P"]]
-    ) %>%
-    ungroup()
+  # Vectorized equilibrium for LR
+  Q_eq_lr <- (A_hold - a_path) / (b + d)
+  P_lr    <- (b * A_hold + d * a_path) / (b + d)
+  p_be_lr <- rep(p_be_from_F(F_hold), n_lr)  # F is constant in LR
+
+  lr <- tibble(
+    frame = 1:n_lr,
+    A = A_hold, F = F_hold, a = a_path,
+    p_be = p_be_lr, Q_eq = Q_eq_lr, P = P_lr
+  )
 
   list(sr = sr, lr = lr)
 }
 
 # ---------------------------
 # 3) Firm curves + firm stats per frame
+#    OPTIMIZED: static curves computed once, only price-dependent elements vary
 # ---------------------------
 firm_curves_long <- function(df) {
-  df %>%
-    crossing(q = q) %>%
-    left_join(base_lookup, by = "q") %>%
-    mutate(
-      AFC = F / q,
-      AVC = AVC_base,
-      MC  = MC_base,
-      ATC = AVC + AFC
-    ) %>%
-    select(frame, q, AFC, AVC, ATC, MC) %>%
-    pivot_longer(cols = c(AFC, AVC, ATC, MC),
-                 names_to = "curve_name", values_to = "y") %>%
-    mutate(curve_name = factor(curve_name, levels = c("AFC","AVC","ATC","MC")))
+  # Check if F is constant across all frames (demand scenarios)
+  F_vals <- unique(df$F)
+  if (length(F_vals) == 1) {
+    # Static curves — compute once, replicate per frame
+    single <- tibble(q = q) %>%
+      mutate(
+        AFC = F_vals / q,
+        AVC = AVC_base,
+        ATC = AVC + AFC,
+        MC  = MC_base
+      ) %>%
+      pivot_longer(cols = c(AFC, AVC, ATC, MC),
+                   names_to = "curve_name", values_to = "y")
+
+    # Cross with frames
+    crossing(frame = df$frame, single) %>%
+      mutate(curve_name = factor(curve_name, levels = c("AFC","AVC","ATC","MC")))
+  } else {
+    # F varies per frame — must compute per frame
+    df %>%
+      crossing(q = q) %>%
+      left_join(base_lookup, by = "q") %>%
+      mutate(
+        AFC = F / q,
+        AVC = AVC_base,
+        MC  = MC_base,
+        ATC = AVC + AFC
+      ) %>%
+      select(frame, q, AFC, AVC, ATC, MC) %>%
+      pivot_longer(cols = c(AFC, AVC, ATC, MC),
+                   names_to = "curve_name", values_to = "y") %>%
+      mutate(curve_name = factor(curve_name, levels = c("AFC","AVC","ATC","MC")))
+  }
 }
 
 firm_stats <- function(df) {
+  # Vectorized: use sapply for q_star and interp
+  P_vec <- df$P
+  F_vec <- df$F
+
+  q_star_vec <- sapply(P_vec, function(P) {
+    if (P >= p_shutdown) q_star_from_P(P) else 0
+  })
+
+  AFC_star_vec <- ifelse(q_star_vec > 0, F_vec / q_star_vec, NA_real_)
+  AVC_star_vec <- ifelse(q_star_vec > 0,
+    sapply(q_star_vec, function(qs) if (qs > 0) interp(qs, q, AVC_base) else NA_real_),
+    NA_real_
+  )
+  ATC_star_vec <- ifelse(q_star_vec > 0, AVC_star_vec + AFC_star_vec, NA_real_)
+  total_profit_vec <- ifelse(q_star_vec > 0, (P_vec - ATC_star_vec) * q_star_vec, NA_real_)
+  is_profit_vec <- ifelse(q_star_vec > 0 & P_vec >= ATC_star_vec, TRUE, FALSE)
+  profit_color_vec <- ifelse(is_profit_vec, "#2ca02c", "#d62728")
+
   df %>%
-    rowwise() %>%
     mutate(
-      q_star = if_else(P >= p_shutdown, q_star_from_P(P), 0),
-      AFC_star = if_else(q_star > 0, F / q_star, NA_real_),
-      AVC_star = if_else(q_star > 0, interp(q_star, q, AVC_base), NA_real_),
-      ATC_star = if_else(q_star > 0, AVC_star + AFC_star, NA_real_),
-      total_profit = if_else(q_star > 0, (P - ATC_star) * q_star, NA_real_),
-      is_profit = if_else(q_star > 0 & P >= ATC_star, TRUE, FALSE),
-      profit_color = if_else(is_profit, "#2ca02c", "#d62728"),
+      q_star = q_star_vec,
+      AFC_star = AFC_star_vec,
+      AVC_star = AVC_star_vec,
+      ATC_star = ATC_star_vec,
+      total_profit = total_profit_vec,
+      is_profit = is_profit_vec,
+      profit_color = profit_color_vec,
       xmin = 0, xmax = q_star,
       ymin = if_else(is_profit, ATC_star, P),
       ymax = if_else(is_profit, P, ATC_star)
-    ) %>%
-    ungroup()
+    )
 }
 
 # ---------------------------
 # 4) Market lines per frame
+#    OPTIMIZED: only 2 points per line (they're linear)
 # ---------------------------
 industry_lines_long <- function(df) {
-  Qgrid <- seq(0, 12, length.out = 240)
+  Qgrid <- c(0, 12)  # reduced from 240 — straight lines need only endpoints
   df %>%
     crossing(Q = Qgrid) %>%
     mutate(
@@ -293,7 +331,7 @@ render_gif <- function(gganim, nframes, fps = 20, width = 800, height = 650) {
           renderer = gifski_renderer())
 }
 
-# Frame-by-frame horizontal append (this is your "working" approach)
+# OPTIMIZED: batch append with lapply instead of growing vector
 side_by_side <- function(gif_left, gif_right) {
   im1 <- image_read(gif_left)
   im2 <- image_read(gif_right)
@@ -307,17 +345,19 @@ side_by_side <- function(gif_left, gif_right) {
     im2 <- im2[1:n]
   }
 
-  combo <- image_append(c(im1[1], im2[1]), stack = FALSE)
-  if (n > 1) for (i in 2:n) combo <- c(combo, image_append(c(im1[i], im2[i]), stack = FALSE))
-  combo
+  frames <- lapply(seq_len(n), function(i) {
+    image_append(c(im1[i], im2[i]), stack = FALSE)
+  })
+  do.call(c, frames)
 }
 
 
 # ---------------------------
 # 6) Master: make one scenario gif
+#    OPTIMIZED: pause phase reuses last SR frames instead of re-rendering
 # ---------------------------
 make_scenario_gif <- function(scenario, outdir = "gifs", fps = 20,
-                              n_pause = 30) {
+                              n_pause = 20) {
 
   paths <- make_paths(scenario)
 
@@ -346,8 +386,6 @@ make_scenario_gif <- function(scenario, outdir = "gifs", fps = 20,
     fixedcost_down = "Long Run: Firms enter \u2192 Supply shifts right \u2192 Price falls to zero profit"
   )
 
-  pause_label <- "Pause \u2014 observe short-run outcome"
-
   # --- Short run phase gifs ---
   pF_sr <- plot_firm_phase(paths$sr, paste0(pretty, " \u2014 Firm"),   sr_label)
   pM_sr <- plot_market_phase(paths$sr, paste0(pretty, " \u2014 Market"), sr_label,
@@ -358,19 +396,9 @@ make_scenario_gif <- function(scenario, outdir = "gifs", fps = 20,
 
   seg_sr <- side_by_side(gF_sr, gM_sr)
 
-  # --- Pause frames: repeat final SR state ---
-  sr_last <- paths$sr %>% slice(n())
-  pause_df <- bind_rows(replicate(n_pause, sr_last, simplify = FALSE)) %>%
-    mutate(frame = 1:n_pause)
-
-  pF_pause <- plot_firm_phase(pause_df, paste0(pretty, " \u2014 Firm"),   pause_label)
-  pM_pause <- plot_market_phase(pause_df, paste0(pretty, " \u2014 Market"), pause_label,
-                                 is_lr = FALSE)
-
-  gF_pause <- render_gif(pF_pause, nframes = n_pause, fps = fps)
-  gM_pause <- render_gif(pM_pause, nframes = n_pause, fps = fps)
-
-  seg_pause <- side_by_side(gF_pause, gM_pause)
+  # --- Pause frames: replicate last SR frame (no re-rendering!) ---
+  last_frame <- seg_sr[length(seg_sr)]
+  seg_pause <- rep(last_frame, n_pause)
 
   # --- Long run phase gifs ---
   # Supply was at a0 throughout SR; ghost line shows this starting position
