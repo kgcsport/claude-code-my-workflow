@@ -76,3 +76,8 @@ Thumbs.db
 *.json
 *.sqlite*
 rsconnect/
+apps/
+docker-compose.yml
+Dockerfile
+shiny-server.conf
+plans/
